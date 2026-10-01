@@ -2,7 +2,8 @@ import re
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from agent import load_csv, run_agent
+from agent import load_csv
+from graph_agent import run_graph_agent
 
 st.set_page_config(page_title="Autonomous Data Analyst Agent", layout="wide")
 
@@ -23,10 +24,11 @@ def pick_chart(out):
     ys = [c for c in num if c != x][:3]
     if not ys:
         return None
-    if re.search(r"date|month|year|day|week|quarter|period", x, re.I):
-        return px.line(out, x=x, y=ys, markers=True)
-    return px.bar(out, x=x, y=ys, barmode="group")
-
+    y = ys if len(ys) > 1 else ys[0]
+    is_time = re.search(r"date|month|year|day|week|quarter|period", x, re.I)
+    if is_time:
+        return px.line(out, x=x, y=y, markers=True)
+    return px.bar(out, x=x, y=y)
 
 st.title("Autonomous Data Analyst Agent")
 st.caption("Ask a business question in plain English. The agent picks SQL or Python, runs it, fixes its own errors, and explains the result.")
@@ -40,8 +42,7 @@ if file:
     q = st.text_input("Your question", placeholder="Is there a correlation between discount and profit?")
     if st.button("Analyze") and q:
         with st.spinner("Agent is working..."):
-            res = run_agent(q, conn)
-
+            res = run_graph_agent(q, conn)
         with st.expander("Agent steps", expanded=True):
             for title, detail in res["steps"]:
                 st.markdown(f"**{title}**")
@@ -61,4 +62,4 @@ if file:
             except Exception as e:
                 st.info(f"Chart unavailable on this machine: {e}")
         st.subheader("Insights")
-        st.write(res["summary"])
+        st.write(res["summary"].replace("$", "\\$"))
