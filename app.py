@@ -1,3 +1,4 @@
+import io
 import os
 import re
 import time
@@ -6,6 +7,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+import agent as agent_mod
 from agent import load_csv
 from graph_agent import run_graph_agent
 from style import (PALETTE, footer, hero, inject_css, ledger, note, section,
@@ -34,6 +36,13 @@ def pick_chart(out):
     return style_fig(fig)
 
 
+@st.cache_resource(show_spinner=False)
+def get_data(raw: bytes):
+    """Read the CSV and build the SQLite table once, not on every click."""
+    df = pd.read_csv(io.BytesIO(raw), encoding_errors="ignore")
+    return df, load_csv(df)
+
+
 section("Your data")
 file = st.file_uploader("Upload a CSV file", type="csv")
 use_sample = st.checkbox("Use the sample Superstore data instead")
@@ -44,8 +53,12 @@ if source is None:
 elif isinstance(source, str) and not os.path.exists(source):
     note("sample_data.csv was not found in the project folder. Add it, or upload your own CSV.", bad=True)
 else:
-    df = pd.read_csv(source, encoding_errors="ignore")
-    conn = load_csv(df)
+    if hasattr(source, "getvalue"):
+        raw = source.getvalue()
+    else:
+        with open(source, "rb") as fh:
+            raw = fh.read()
+    df, conn = get_data(raw)
     table(df.head())
 
     section("Your question")
@@ -53,10 +66,12 @@ else:
                       label_visibility="collapsed")
     if st.button("Analyze data") and q:
         t0 = time.time()
+        n0 = len(agent_mod.LLM_LOG)
         with st.spinner("The agent is writing and running code..."):
             res = run_graph_agent(q, conn)
         secs = time.time() - t0
         out = res["df"]
+        calls = agent_mod.LLM_LOG[n0:]
 
         if out is None:
             note("The agent could not answer this one. Try rephrasing, or name the column you mean.", bad=True)
@@ -64,6 +79,12 @@ else:
             retries = sum(1 for title, _ in res["steps"] if title.startswith("Error"))
             ledger([("Tool used", res["tool"].upper()), ("Rows", f"{len(out):,}"),
                     ("Retries", retries), ("Time", f"{secs:.1f}s")])
+
+            if calls:
+                failed = sum(1 for c in calls if not c["ok"])
+                slow = max(calls, key=lambda c: c["seconds"])
+                st.caption(f"The agent made {len(calls)} model calls ({failed} failed or busy). "
+                           f"Slowest: {slow['seconds']:.1f}s on {slow['model']}.")
 
             section("Result")
             table(out)

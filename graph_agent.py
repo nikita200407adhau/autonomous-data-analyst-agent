@@ -79,8 +79,8 @@ def execute_node(state: AgentState) -> dict:
 def summarize_node(state: AgentState) -> dict:
     df = state["df"]
     text = llm(
-        f"Question: {state['question']}\nResult (first 30 rows):\n{df.head(30).to_string(index=False)}\n\n"
-        "Write a short executive summary: 2-3 key insights and 1 recommendation. Be specific with numbers."
+        f"Question: {state['question']}\nResult (first 15 rows):\n{df.head(15).to_string(index=False)}\n\n"
+        "Write a short executive summary in under 90 words: 2 key insights and 1 recommendation. Be specific with numbers."
     )
     return {"summary": text, "steps": [("4. Summarize", "Insights generated")]}
 
@@ -89,14 +89,14 @@ def give_up_node(state: AgentState) -> dict:
     return {"summary": "I could not produce a valid answer for this question.",
             "steps": [("Stopped", f"Gave up after {state['attempts']} attempts")]}
 
-# ------------------------------------------------------------------ EDGES
+
+# ===== STEP 3 BELOW =====
 def route_after_execute(state: AgentState) -> str:
-    """Decide what happens after the code runs."""
     if state.get("df") is not None and state.get("error") is None:
-        return "summarize"            # success
+        return "summarize"
     if state["attempts"] >= MAX_RETRIES:
-        return "give_up"              # too many failures
-    return "plan"                     # reflect and try again
+        return "give_up"
+    return "plan"
 
 
 builder = StateGraph(AgentState)
@@ -110,18 +110,15 @@ builder.add_edge(START, "inspect")
 builder.add_edge("inspect", "plan")
 builder.add_edge("plan", "execute")
 builder.add_conditional_edges(
-    "execute",
-    route_after_execute,
+    "execute", route_after_execute,
     {"summarize": "summarize", "plan": "plan", "give_up": "give_up"},
 )
 builder.add_edge("summarize", END)
 builder.add_edge("give_up", END)
-
 graph = builder.compile()
 
 
 def run_graph_agent(question: str, conn) -> dict:
-    """Same output shape as run_agent() in agent.py, so app.py barely changes."""
     final = graph.invoke({"question": question, "conn": conn, "steps": []})
     action = final.get("action") or {}
     return {

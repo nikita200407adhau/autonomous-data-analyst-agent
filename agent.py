@@ -6,13 +6,19 @@ from google.genai import types
 
 MODEL = "gemini-3.8-flash"
 MAX_RETRIES = 3
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+client = genai.Client(
+    api_key=os.getenv("GEMINI_API_KEY"),
+    http_options=types.HttpOptions(timeout=40_000),  # milliseconds: stop waiting after 40 s
+)
 
 FORBIDDEN_SQL = re.compile(
     r"\b(insert|update|delete|drop|alter|create|replace|attach|pragma|truncate)\b", re.I
 )
 
 # ---------------------------------------------------------------- LLM helpers
+MAX_MODELS = 3                 # try at most 3 models per call, then give up
+LLM_LOG = []                   # one entry per model call, so the app can show where time goes
+_state = {"fast": True}        # ask for little or no "thinking" time; switched off if a model rejects it
 _models_cache = []
 
 
@@ -28,31 +34,47 @@ def get_models():
     return _models_cache
 
 
+def _config(json_mode: bool):
+    kw = {
+        "response_mime_type": "application/json" if json_mode else "text/plain",
+        "temperature": 0.1,
+    }
+    if _state["fast"]:
+        try:
+            kw["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        except Exception:
+            _state["fast"] = False
+    return types.GenerateContentConfig(**kw)
+
+
 def llm(prompt: str, json_mode: bool = False) -> str:
-    cfg = types.GenerateContentConfig(
-        response_mime_type="application/json" if json_mode else "text/plain",
-        temperature=0.1,
-    )
     try:
-        candidates = [MODEL] + [m for m in get_models() if m != MODEL]
+        candidates = ([MODEL] + [m for m in get_models() if m != MODEL])[:MAX_MODELS]
     except Exception:
         candidates = [MODEL]
 
     last_err = None
     for model in candidates:
-        for attempt in range(2):
+        for _ in range(2):   # the second pass is only used after dropping the thinking setting
+            start = time.time()
             try:
-                return client.models.generate_content(
-                    model=model, contents=prompt, config=cfg
+                text = client.models.generate_content(
+                    model=model, contents=prompt, config=_config(json_mode)
                 ).text
+                LLM_LOG.append({"model": model, "seconds": time.time() - start, "ok": True})
+                return text
             except Exception as e:
                 last_err = e
-                msg = str(e)
-                if "503" in msg or "429" in msg or "UNAVAILABLE" in msg:
-                    time.sleep(2)
-                    continue  # retry same model once, then move on
+                msg = str(e).lower()
+                LLM_LOG.append({"model": model, "seconds": time.time() - start, "ok": False})
+                if _state["fast"] and "thinking" in msg:
+                    _state["fast"] = False        # this model rejects it: stop sending it
+                    continue
+                if any(k in msg for k in ("503", "429", "unavailable", "timed out", "timeout", "504", "deadline")):
+                    time.sleep(1)
+                    break                          # busy or slow: move on to the next model
                 if "404" in msg:
-                    break  # model not available, try next one
+                    break                          # model not available: next one
                 raise
     raise last_err
 
