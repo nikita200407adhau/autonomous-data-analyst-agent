@@ -34,8 +34,10 @@ st.title("Autonomous Data Analyst Agent")
 st.caption("Ask a business question in plain English. The agent picks SQL or Python, runs it, fixes its own errors, and explains the result.")
 
 file = st.file_uploader("Upload a CSV", type="csv")
-if file:
-    df = pd.read_csv(file, encoding_errors="ignore")
+use_sample = st.checkbox("Or try it with the sample Superstore data")
+source = file if file else ("sample_data.csv" if use_sample else None)
+if source is not None:
+    df = pd.read_csv(source, encoding_errors="ignore")
     conn = load_csv(df)
     show_df(df.head())
 
