@@ -10,9 +10,12 @@ import time
 import pandas as pd
 
 from agent import load_csv
+import graph_agent
 from graph_agent import run_graph_agent
 
-PAUSE_SECONDS = 3  # small pause between questions to avoid API rate limits
+graph_agent.SKIP_SUMMARY = True  # halves the number of API calls
+
+PAUSE_SECONDS = 12  # free-tier keys also have a per-minute limit, so go slowly
 
 
 def compact(df, rows=6):

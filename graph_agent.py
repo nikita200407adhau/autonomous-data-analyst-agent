@@ -10,6 +10,9 @@ from agent import (
 )
 
 
+SKIP_SUMMARY = False   # benchmark.py sets this to True: accuracy is judged on the table, so skip the extra AI call
+
+
 # ------------------------------------------------------------------ STATE
 class AgentState(TypedDict, total=False):
     question: str
@@ -77,6 +80,8 @@ def execute_node(state: AgentState) -> dict:
 
 
 def summarize_node(state: AgentState) -> dict:
+    if SKIP_SUMMARY:
+        return {"summary": "(summary skipped)", "steps": [("4. Summarize", "Skipped")]}
     df = state["df"]
     text = llm(
         f"Question: {state['question']}\nResult (first 15 rows):\n{df.head(15).to_string(index=False)}\n\n"

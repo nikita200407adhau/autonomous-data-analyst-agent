@@ -92,7 +92,7 @@ footer{visibility:hidden;}
 .ws-row.err{background:#FFF8F6;}
 .ws-row.err .ws-gutter{background:var(--coral-soft);color:var(--coral);}
 .ws-row.ok .ws-gutter{background:var(--sea-soft);color:var(--sea);}
-.ws-body pre{margin:8px 0 2px;padding:10px 12px;background:#F7FAFD;border:1px solid var(--line);border-radius:6px;font-family:var(--font-code);font-size:.8rem;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:#2A3A52;max-height:240px;overflow:auto;}
+.ws-body .ws-code{margin:8px 0 2px;padding:10px 12px;background:#F7FAFD;border:1px solid var(--line);border-radius:6px;font-family:var(--font-code);font-size:.8rem;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:#2A3A52;max-height:240px;overflow:auto;}
 
 /* insights */
 .st-key-insights{background:#fff;border:1px solid var(--line);border-left:6px solid var(--sun);border-radius:8px;padding:18px 26px;}
@@ -165,7 +165,7 @@ def worksheet(steps):
             cls = ""
         rows.append(
             f'<div class="ws-row {cls}"><div class="ws-gutter">{i}</div>'
-            f'<div class="ws-body"><div class="ws-title">{_safe(title)}</div><pre>{_safe(detail)}</pre></div></div>'
+            f'<div class="ws-body"><div class="ws-title">{_safe(title)}</div><div class="ws-code">{_safe(detail)}</div></div></div>'
         )
     st.markdown(f'<div class="ws">{"".join(rows)}</div>', unsafe_allow_html=True)
 

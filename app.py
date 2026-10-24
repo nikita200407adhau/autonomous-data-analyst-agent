@@ -73,7 +73,10 @@ else:
         out = res["df"]
         calls = agent_mod.LLM_LOG[n0:]
 
-        if out is None:
+        quota_hit = any(("429" in str(d) or "RESOURCE_EXHAUSTED" in str(d)) for _, d in res["steps"])
+        if out is None and quota_hit:
+            note("The free AI quota for this demo is used up for now. Please try again later, or run the app with your own Gemini key.", bad=True)
+        elif out is None:
             note("The agent could not answer this one. Try rephrasing, or name the column you mean.", bad=True)
         else:
             retries = sum(1 for title, _ in res["steps"] if title.startswith("Error"))
