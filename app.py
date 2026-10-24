@@ -1,21 +1,23 @@
+import os
 import re
+import time
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+
 from agent import load_csv
 from graph_agent import run_graph_agent
+from style import (PALETTE, footer, hero, inject_css, ledger, note, section,
+                   style_fig, table, worksheet)
 
-st.set_page_config(page_title="Autonomous Data Analyst Agent", layout="wide")
-
-
-def show_df(d):
-    # Plain HTML table: avoids pyarrow, which Windows is blocking
-    html = d.head(200).to_html(index=False)
-    st.markdown(f'<div style="overflow-x:auto">{html}</div>', unsafe_allow_html=True)
+st.set_page_config(page_title="Autonomous Data Analyst Agent", page_icon="📊", layout="wide")
+inject_css()
+hero()
 
 
 def pick_chart(out):
-    """Line chart for time-like x axis, bar chart otherwise."""
+    """Line chart for a time-like x axis, bar chart otherwise."""
     num = out.select_dtypes("number").columns.tolist()
     cat = [c for c in out.columns if c not in num]
     if not num or not (2 <= len(out) <= 60):
@@ -25,43 +27,63 @@ def pick_chart(out):
     if not ys:
         return None
     y = ys if len(ys) > 1 else ys[0]
-    is_time = re.search(r"date|month|year|day|week|quarter|period", x, re.I)
-    if is_time:
-        return px.line(out, x=x, y=y, markers=True)
-    return px.bar(out, x=x, y=y)
+    if re.search(r"date|month|year|day|week|quarter|period", x, re.I):
+        fig = px.line(out, x=x, y=y, markers=True, color_discrete_sequence=PALETTE)
+    else:
+        fig = px.bar(out, x=x, y=y, color_discrete_sequence=PALETTE)
+    return style_fig(fig)
 
-st.title("Autonomous Data Analyst Agent")
-st.caption("Ask a business question in plain English. The agent picks SQL or Python, runs it, fixes its own errors, and explains the result.")
 
-file = st.file_uploader("Upload a CSV", type="csv")
-use_sample = st.checkbox("Or try it with the sample Superstore data")
+section("Your data")
+file = st.file_uploader("Upload a CSV file", type="csv")
+use_sample = st.checkbox("Use the sample Superstore data instead")
 source = file if file else ("sample_data.csv" if use_sample else None)
-if source is not None:
+
+if source is None:
+    note("Upload a CSV file, or tick the sample data box, to get started.")
+elif isinstance(source, str) and not os.path.exists(source):
+    note("sample_data.csv was not found in the project folder. Add it, or upload your own CSV.", bad=True)
+else:
     df = pd.read_csv(source, encoding_errors="ignore")
     conn = load_csv(df)
-    show_df(df.head())
+    table(df.head())
 
-    q = st.text_input("Your question", placeholder="Is there a correlation between discount and profit?")
-    if st.button("Analyze") and q:
-        with st.spinner("Agent is working..."):
+    section("Your question")
+    q = st.text_input("Ask a question about this data", placeholder="Which region has the highest profit?",
+                      label_visibility="collapsed")
+    if st.button("Analyze data") and q:
+        t0 = time.time()
+        with st.spinner("The agent is writing and running code..."):
             res = run_graph_agent(q, conn)
-        with st.expander("Agent steps", expanded=True):
-            for title, detail in res["steps"]:
-                st.markdown(f"**{title}**")
-                st.code(detail)
+        secs = time.time() - t0
+        out = res["df"]
 
-        if res["df"] is not None:
-            out = res["df"]
-            st.caption(f"Tool used: {res['tool'].upper()}")
-            st.subheader("Result")
-            show_df(out)
-            st.download_button("Download result as CSV", out.to_csv(index=False).encode("utf-8"),
-                        file_name="result.csv", mime="text/csv")
+        if out is None:
+            note("The agent could not answer this one. Try rephrasing, or name the column you mean.", bad=True)
+        else:
+            retries = sum(1 for title, _ in res["steps"] if title.startswith("Error"))
+            ledger([("Tool used", res["tool"].upper()), ("Rows", f"{len(out):,}"),
+                    ("Retries", retries), ("Time", f"{secs:.1f}s")])
+
+            section("Result")
+            table(out)
+            st.download_button("Download as CSV", out.to_csv(index=False).encode("utf-8"),
+                               file_name="result.csv", mime="text/csv")
             try:
                 fig = pick_chart(out)
                 if fig is not None:
-                    st.plotly_chart(fig, use_container_width=True)
+                    try:
+                        st.plotly_chart(fig, width="stretch")
+                    except TypeError:  # older Streamlit versions
+                        st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
-                st.info(f"Chart unavailable on this machine: {e}")
-        st.subheader("Insights")
-        st.write(res["summary"].replace("$", "\\$"))
+                note(f"The chart could not be drawn: {e}")
+
+            section("Insights")
+            with st.container(key="insights"):
+                st.write(res["summary"].replace("$", "\\$"))
+
+        section("How the agent got there")
+        worksheet(res["steps"])
+
+footer()
