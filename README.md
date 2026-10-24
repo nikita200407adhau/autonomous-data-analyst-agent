@@ -1,5 +1,8 @@
 # Autonomous Data Analyst Agent
 
+   **Live demo:** https://[your-app-name](https://autonomous-data-analyst-agent-app.streamlit.app/).streamlit.app
+   
+
 An AI agent that takes a business question in plain English, decides whether to use **SQL** or **Python (Pandas)**, runs the code, fixes its own errors, and returns a table, a chart, and a written summary.
 
 Built with Python, Gemini API, LangGraph, SQLite, Pandas, Plotly and Streamlit.
