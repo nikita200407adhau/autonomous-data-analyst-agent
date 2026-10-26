@@ -8,6 +8,7 @@ import plotly.express as px
 import streamlit as st
 
 import agent as agent_mod
+import answer_cache
 from agent import load_csv
 from graph_agent import run_graph_agent
 from style import (PALETTE, footer, hero, inject_css, ledger, note, section,
@@ -40,7 +41,7 @@ def pick_chart(out):
 def get_data(raw: bytes):
     """Read the CSV and build the SQLite table once, not on every click."""
     df = pd.read_csv(io.BytesIO(raw), encoding_errors="ignore")
-    return df, load_csv(df)
+    return df, load_csv(df), answer_cache.data_key(df)
 
 
 section("Your data")
@@ -58,32 +59,53 @@ else:
     else:
         with open(source, "rb") as fh:
             raw = fh.read()
-    df, conn = get_data(raw)
+    df, conn, dkey = get_data(raw)
+    use_cache = isinstance(source, str)   # saved answers are only used for the built-in sample data
     table(df.head())
 
     section("Your question")
-    q = st.text_input("Ask a question about this data", placeholder="Which region has the highest profit?",
-                      label_visibility="collapsed")
-    if st.button("Analyze data") and q:
+    q_in = st.text_input("Ask a question about this data", placeholder="Which region has the highest sales?",
+                         label_visibility="collapsed", key="q")
+    go = st.button("Analyze data")
+
+    clicked = None
+    examples = answer_cache.questions(dkey) if use_cache else []
+    if examples:
+        st.caption("Saved examples. These open instantly and use no AI call:")
+        with st.container(key="examples"):
+            cols = st.columns(3)
+            for i, qq in enumerate(examples[:6]):
+                if cols[i % 3].button(qq, key=f"ex{i}"):
+                    clicked = qq
+
+    question = clicked or (q_in if go and q_in else None)
+    if question:
+        res = answer_cache.get(dkey, question) if use_cache else None
+        from_cache = res is not None
         t0 = time.time()
         n0 = len(agent_mod.LLM_LOG)
-        with st.spinner("The agent is writing and running code..."):
-            res = run_graph_agent(q, conn)
+        if not from_cache:
+            with st.spinner("The agent is writing and running code..."):
+                res = run_graph_agent(question, conn)
+            if use_cache:
+                answer_cache.put(dkey, question, res)
         secs = time.time() - t0
         out = res["df"]
         calls = agent_mod.LLM_LOG[n0:]
 
         quota_hit = any(("429" in str(d) or "RESOURCE_EXHAUSTED" in str(d)) for _, d in res["steps"])
         if out is None and quota_hit:
-            note("The free AI quota for this demo is used up for now. Please try again later, or run the app with your own Gemini key.", bad=True)
+            note("The free AI quota for this demo is used up for now. Try one of the saved examples, "
+                 "try again later, or run the app with your own Gemini key.", bad=True)
         elif out is None:
             note("The agent could not answer this one. Try rephrasing, or name the column you mean.", bad=True)
         else:
             retries = sum(1 for title, _ in res["steps"] if title.startswith("Error"))
             ledger([("Tool used", res["tool"].upper()), ("Rows", f"{len(out):,}"),
-                    ("Retries", retries), ("Time", f"{secs:.1f}s")])
-
-            if calls:
+                    ("Retries", retries), ("Time", "saved" if from_cache else f"{secs:.1f}s")])
+            if from_cache:
+                st.caption("This is a saved answer from an earlier run of the same question. No AI call was made.")
+            elif calls:
                 failed = sum(1 for c in calls if not c["ok"])
                 slow = max(calls, key=lambda c: c["seconds"])
                 st.caption(f"The agent made {len(calls)} model calls ({failed} failed or busy). "

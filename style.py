@@ -68,6 +68,11 @@ footer{visibility:hidden;}
 [data-testid="stDownloadButton"]>button:hover{transform:translate(-1px,-1px);box-shadow:5px 5px 0 var(--sun);background:#fff;color:var(--ink);border-color:var(--ink);}
 .stButton>button:focus-visible,[data-testid="stDownloadButton"]>button:focus-visible{outline:3px solid var(--blue);outline-offset:2px;}
 
+/* saved example buttons: quieter than the main action */
+.st-key-examples .stButton>button{background:#fff;color:var(--ink);box-shadow:none;border:1.5px solid var(--edge);font-weight:600;font-size:.88rem;text-align:left;}
+.st-key-examples .stButton>button p{color:var(--ink);}
+.st-key-examples .stButton>button:hover{background:#FFF9E6;border-color:var(--ink);box-shadow:3px 3px 0 var(--sun);color:var(--ink);}
+
 /* summary strip */
 .ledger{display:flex;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:8px;margin:18px 0 6px;}
 .ledger>div{flex:1 1 140px;padding:12px 18px;border-right:1px solid var(--line);}
