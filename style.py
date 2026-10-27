@@ -153,9 +153,10 @@ def ledger(items):
     st.markdown(f'<div class="ledger">{cells}</div>', unsafe_allow_html=True)
 
 
-def table(d, rows=200):
+def table(d, rows=200, round_floats=False):
     # Plain HTML table: avoids pyarrow, which some Windows setups block
-    t = d.head(rows).to_html(index=False, border=0)
+    kw = {"float_format": (lambda x: f"{x:,.2f}")} if round_floats else {}
+    t = d.head(rows).to_html(index=False, border=0, **kw)
     st.markdown(f'<div class="tbl-wrap">{t}</div>', unsafe_allow_html=True)
 
 

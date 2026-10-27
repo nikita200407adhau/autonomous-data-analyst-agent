@@ -119,7 +119,7 @@ else:
                            f"Slowest: {slow['seconds']:.1f}s on {slow['model']}.")
 
             section("Result")
-            table(out)
+            table(out, round_floats=True)
             st.download_button("Download as CSV", out.to_csv(index=False).encode("utf-8"),
                                file_name="result.csv", mime="text/csv")
             try:
