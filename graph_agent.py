@@ -22,6 +22,7 @@ class AgentState(TypedDict, total=False):
     error: Optional[str]
     df: Any                                    # result table
     attempts: int
+    fatal: bool                                # True when the AI service itself failed (no point retrying)
     summary: str
     steps: Annotated[list, operator.add]       # nodes ADD to this list, never overwrite
 
@@ -32,6 +33,7 @@ def inspect_node(state: AgentState) -> dict:
     return {
         "schema": schema,
         "attempts": 0,
+        "fatal": False,
         "error": None,
         "df": None,
         "steps": [("1. Inspect schema", schema)],
@@ -49,7 +51,9 @@ def plan_node(state: AgentState) -> dict:
         )
     except Exception as e:
         msg = f"Model returned invalid output: {e}"
-        return {"attempts": attempts, "action": None, "error": msg,
+        infra = ("429", "503", "504", "resource_exhausted", "unavailable", "deadline", "timed out", "timeout", "gemini_api_key")
+        fatal = any(k in str(e).lower() for k in infra)
+        return {"attempts": attempts, "action": None, "error": msg, "fatal": fatal,
                 "steps": [(f"2. Attempt {attempts}: planning failed", msg)]}
     title = f"2. Attempt {attempts}: choose tool = {action['tool'].upper()}"
     return {"attempts": attempts, "action": action, "error": None,
@@ -97,6 +101,8 @@ def give_up_node(state: AgentState) -> dict:
 
 # ===== STEP 3 BELOW =====
 def route_after_execute(state: AgentState) -> str:
+    if state.get("fatal"):
+        return "give_up"              # the AI service failed: retrying the plan would only wait again
     if state.get("df") is not None and state.get("error") is None:
         return "summarize"
     if state["attempts"] >= MAX_RETRIES:

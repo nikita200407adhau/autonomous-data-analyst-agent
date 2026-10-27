@@ -93,8 +93,15 @@ else:
         out = res["df"]
         calls = agent_mod.LLM_LOG[n0:]
 
+        no_key = any("GEMINI_API_KEY" in str(d) for _, d in res["steps"])
         quota_hit = any(("429" in str(d) or "RESOURCE_EXHAUSTED" in str(d)) for _, d in res["steps"])
-        if out is None and quota_hit:
+        if out is None and no_key:
+            note("No Gemini API key was found, so the agent cannot call the AI. Set GEMINI_API_KEY and restart "
+                 "the app. Saved examples still work.", bad=True)
+        elif out is None and any(k in str(d) for _, d in res["steps"] for k in ("504", "DEADLINE", "503", "UNAVAILABLE")) and not quota_hit:
+            note("Google's AI service was too slow or busy for this request. Wait a minute and try again, "
+                 "or switch to a faster model (see check_gemini.py).", bad=True)
+        elif out is None and quota_hit:
             note("The free AI quota for this demo is used up for now. Try one of the saved examples, "
                  "try again later, or run the app with your own Gemini key.", bad=True)
         elif out is None:

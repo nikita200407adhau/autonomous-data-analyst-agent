@@ -4,11 +4,13 @@ import pandas as pd
 from google import genai
 from google.genai import types
 
-MODEL = "gemini-3.8-flash"
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")   # set GEMINI_MODEL to try a faster model
 MAX_RETRIES = 3
-client = genai.Client(
-    api_key=os.getenv("GEMINI_API_KEY"),
-    http_options=types.HttpOptions(timeout=40_000),  # milliseconds: stop waiting after 40 s
+_API_KEY = os.getenv("GEMINI_API_KEY")
+# Without a key the app still opens (saved examples keep working); only live AI calls need it.
+client = (
+    genai.Client(api_key=_API_KEY, http_options=types.HttpOptions(timeout=60_000))  # milliseconds
+    if _API_KEY else None
 )
 
 FORBIDDEN_SQL = re.compile(
@@ -16,9 +18,11 @@ FORBIDDEN_SQL = re.compile(
 )
 
 # ---------------------------------------------------------------- LLM helpers
-MAX_MODELS = 3                 # try at most 3 models per call, then give up
+MAX_MODELS = 2                 # try at most 2 models per call, then give up
+TIME_BUDGET = 90               # seconds: stop trying more models after this long
 LLM_LOG = []                   # one entry per model call, so the app can show where time goes
-_state = {"fast": True}        # ask for little or no "thinking" time; switched off if a model rejects it
+_THINK_STAGES = ("level", "budget", None)   # ask for little thinking time; fall back if a model rejects it
+_state = {"stage": 0}
 _models_cache = []
 
 
@@ -39,23 +43,32 @@ def _config(json_mode: bool):
         "response_mime_type": "application/json" if json_mode else "text/plain",
         "temperature": 0.1,
     }
-    if _state["fast"]:
+    while _state["stage"] < len(_THINK_STAGES) - 1:
         try:
-            kw["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-        except Exception:
-            _state["fast"] = False
+            if _THINK_STAGES[_state["stage"]] == "level":
+                kw["thinking_config"] = types.ThinkingConfig(thinking_level="low")
+            else:
+                kw["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+            break
+        except Exception:               # this SDK version does not know that option
+            _state["stage"] += 1
     return types.GenerateContentConfig(**kw)
 
 
 def llm(prompt: str, json_mode: bool = False) -> str:
+    if client is None:
+        raise RuntimeError("No Gemini API key found. Set GEMINI_API_KEY and restart the app.")
     try:
         candidates = ([MODEL] + [m for m in get_models() if m != MODEL])[:MAX_MODELS]
     except Exception:
         candidates = [MODEL]
 
     last_err = None
+    began = time.time()
     for model in candidates:
-        for _ in range(2):   # the second pass is only used after dropping the thinking setting
+        if last_err is not None and time.time() - began > TIME_BUDGET:
+            break
+        for _ in range(len(_THINK_STAGES)):   # extra passes only happen after dropping a thinking option
             start = time.time()
             try:
                 text = client.models.generate_content(
@@ -67,8 +80,8 @@ def llm(prompt: str, json_mode: bool = False) -> str:
                 last_err = e
                 msg = str(e).lower()
                 LLM_LOG.append({"model": model, "seconds": time.time() - start, "ok": False})
-                if _state["fast"] and "thinking" in msg:
-                    _state["fast"] = False        # this model rejects it: stop sending it
+                if _state["stage"] < len(_THINK_STAGES) - 1 and "thinking" in msg:
+                    _state["stage"] += 1          # this model rejects that option: try the next one
                     continue
                 if any(k in msg for k in ("503", "429", "unavailable", "timed out", "timeout", "504", "deadline")):
                     time.sleep(1)
